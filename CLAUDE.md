@@ -17,6 +17,7 @@ Measures golf swings from video, one record per swing, and checks its own readin
 ## Rules for this repo
 
 - Run `python3 -m unittest discover tests` before and after any change to `scripts/`.
+- Every pull request runs the same tests on GitHub (`.github/workflows/tests.yml`). `main` requires them to pass, and pull requests are set to auto-merge.
 - Change one thing at a time, rerun the golden set (`swing_archive.py golden`), and add an entry to `HARNESS_LOG.md`.
 - `scripts/swing_frames.py` is embedded in `skills-chat/golf-swing-video-analysis/SKILL.md`. Change both together; a test fails otherwise.
 - Never put Cahlan's Model, Constitution or Living Log in this repo or the archive. The measuring agents must not be able to read them.
