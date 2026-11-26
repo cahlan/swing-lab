@@ -4,6 +4,10 @@ Each entry is a failure that actually happened and the part of the harness it ch
 
 | Date | What went wrong | What changed |
 | --- | --- | --- |
+| 2026-11-25 | Pilot: a check disagreed and nothing said whether the readers chose different frames or read the same frames differently | `check` records and prints key frames chosen more than a frame apart |
+| 2026-11-25 | Pilot: `next` gave out a swing that another agent was still measuring | `next` hands each swing out once; `resume` lists unfinished ones |
+| 2026-11-25 | Pilot: `file` and `check` printed readings, which reached the orchestrator and its report | Both are quiet by default; `check` prints names, not values |
+| 2026-11-25 | Pilot: no way to measure a swing again after the instructions change | `reset` sets a swing aside to be re-measured and keeps the old record in `superseded/` |
 | 2026-11-25 | An audit against Cahlan's loop principles found the record validator could not tell a wrong record from a right one | Plausibility checks in `file`; independent second reading (`check`) for the pilot swings and one in five after; disputed records go to `needs_review` and are left out of counts |
 | 2026-11-25 | The Profile was set to spot-check its own claims and score its own predictions | Predictions are data scored by `score`; the Profile reports check and golden-set agreement and grades nothing |
 | 2026-11-25 | "Don't read the Model or other records" was only a sentence | One fresh agent per swing; read-deny rules from `install_walls.py`; the Model is kept out of the repo and archive |

@@ -67,17 +67,22 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(row["recorded_utc"], "2026-06-04 18:59:22")
         self.run_ok("scan"); self.assertEqual(len(self.ledger()), 3)
 
-    def test_next_hands_out_and_resumes_the_same_units(self):
-        first = self.run_ok("next", "-n", "2"); again = self.run_ok("next", "-n", "2")
-        self.assertEqual(first, again)
-        self.assertEqual(sum(r["status"] == "in_progress" for r in self.ledger().values()), 2)
+    def test_next_hands_each_swing_out_once_and_resume_lists_them(self):
+        first = self.run_ok("next", "-n", "2"); second = self.run_ok("next", "-n", "2")
+        self.assertEqual(len(first.strip().splitlines()), 2); self.assertEqual(len(second.strip().splitlines()), 1)
+        self.assertFalse(set(first.splitlines()) & set(second.splitlines()))
+        self.assertIn("3 still in progress", self.run_ok("next"))
+        self.assertEqual(sorted(self.run_ok("resume").splitlines()), sorted((first + second).splitlines()))
+        self.run_ok("resume"); self.assertEqual(sum(r["status"] == "in_progress" for r in self.ledger().values()), 3)
 
     def test_file_computes_comparable_measurements(self):
         out = self.run_ok("file", "A__s1", self.record())
         rec = json.loads(self.read("records", "A__s1.json"))
         self.assertEqual(rec["derived"]["pelvis_shift_impact_pct_stance"], 12.0)
         self.assertEqual(rec["derived"]["head_drop_impact_pct_height"], 9.7)
-        self.assertEqual(rec["golfer"], "Cahlan"); self.assertTrue(rec["harness"]); self.assertIn("analyzed", out)
+        self.assertEqual(rec["golfer"], "Cahlan"); self.assertTrue(rec["harness"])
+        self.assertEqual(out.strip(), "filed A__s1 as analyzed")          # quiet: no readings on screen
+        self.assertIn("pelvis_shift_impact_pct_stance", self.run_ok("file", "B__s1", self.record(), "--show"))
         self.assertEqual(rec["impact_utc"], "2026-06-04 18:59:23")
 
     def test_incomplete_record_is_rejected_and_capped(self):
@@ -99,10 +104,27 @@ class ArchiveTest(unittest.TestCase):
     def test_independent_check_agrees_or_flags(self):
         self.run_ok("file", "A__s1", self.record()); self.run_ok("file", "B__s1", self.record())
         self.assertIn("AGREE", self.run_ok("check", "A__s1", self.record(frames__impact__pelvis_center=[5.7, 4.5])))
-        self.assertIn("DISAGREE", self.run_ok("check", "B__s1", self.record(frames__impact__pelvis_center=[6.6, 4.5])))
+        out = self.run_ok("check", "B__s1", self.record(frames__impact__pelvis_center=[6.6, 4.5]))
+        self.assertIn("DISAGREE", out); self.assertIn("measurements that differ: pelvis_shift_impact_pct_stance", out)
+        self.assertIn("read the landmarks differently", out); self.assertNotIn("12.0", out)
         led = self.ledger()
         self.assertEqual((led["A__s1"]["checked"], led["A__s1"]["status"]), ("agree", "analyzed"))
         self.assertEqual((led["B__s1"]["checked"], led["B__s1"]["status"]), ("disagree", "needs_review"))
+
+    def test_check_reports_key_frames_chosen_apart(self):
+        self.run_ok("file", "A__s1", self.record())
+        out = self.run_ok("check", "A__s1", self.record(frames__top__t=1.0, frames__impact__pelvis_center=[6.6, 4.5]))
+        self.assertIn("key frame 'top' chosen 6 frames apart", out)
+        check = json.loads(self.read("checks", "A__s1.json")); self.assertEqual(check["frame_time_diffs"]["top"][:2], [1.2, 1.0])
+
+    def test_reset_keeps_the_old_record_and_hands_the_swing_out_again(self):
+        self.run_ok("file", "A__s1", self.record()); self.run_ok("check", "A__s1", self.record())
+        self.assertNotEqual(self.run_cmd("reset", "A__s1").returncode, 0)             # needs a reason
+        self.run_ok("reset", "A__s1", "--note", "takeaway frame rule changed")
+        row = self.ledger()["A__s1"]; self.assertEqual((row["status"], row["checked"], row["attempts"]), ("extracted", "", "0"))
+        kept = os.listdir(os.path.join(self.root, "_analysis", "superseded")); self.assertEqual(len(kept), 2)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "_analysis", "records", "A__s1.json")))
+        self.assertIn("A__s1", self.run_ok("next", "-n", "5"))
 
     def test_pilot_swings_are_due_for_a_check(self):
         self.run_ok("file", "A__s1", self.record())
