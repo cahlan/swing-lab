@@ -22,7 +22,7 @@ FACE_ON = {
 
 
 DTL = {
-    "schema": 1, "view": "dtl", "club": "driver", "quality": "good", "model": "test", "impact_s": 1.5,
+    "schema": 1, "view": "dtl", "club": "driver", "camera_line": "on_line", "quality": "good", "model": "test", "impact_s": 1.5,
     "crop": [0, 7, 0.5, 7.5], "camera_moved": False,
     "frames": {
         "address": {"t": 0.3, "hips_back": [2.6, 6.3], "head": [4.6, 4.1], "cap_top": [4.6, 3.6], "ground": [3, 9.2],
@@ -132,6 +132,36 @@ class ArchiveTest(unittest.TestCase):
         self.assertIn("delivery_other", r.stderr)
         self.run_ok("file", "A__s1", self.record(DTL, frames__delivery__clubhead=None))
         self.assertIsNone(json.loads(self.read("records", "A__s1.json"))["derived"]["clubhead_inside_hands_delivery_pct_height"])
+
+    def test_down_the_line_needs_a_camera_line_and_the_rollup_splits_on_it(self):
+        self.assertIn("camera_line must be one of", self.run_cmd("file", "A__s1", self.record(DTL, camera_line="behind")).stderr)
+        self.run_ok("file", "A__s1", self.record(DTL)); self.run_ok("file", "B__s1", self.record(DTL, camera_line="inside"))
+        self.run_ok("rollup")
+        self.assertIn("| code | all | driver | camera on line | camera off line |", self.read("rollup.md"))
+
+    def test_filing_clears_the_readers_scratch_folder(self):
+        folder = os.path.join(self.root, "scratch", "A__s1"); os.makedirs(folder)
+        shutil.copy(self.record(), os.path.join(folder, "record.json"))
+        with open(os.path.join(folder, "keys.jpg"), "wb") as f: f.write(b"jpg")
+        self.run_ok("file", "A__s1", os.path.join(folder, "record.json"), "--evidence", os.path.join(folder, "keys.jpg"))
+        self.assertFalse(os.path.exists(folder))
+        self.assertTrue(os.path.exists(os.path.join(self.root, "_analysis", "evidence", "A__s1_keys.jpg")))
+        check = os.path.join(self.root, "scratch", "A__s1_check"); os.makedirs(check)
+        shutil.copy(self.record(), os.path.join(check, "record.json"))
+        self.run_ok("check", "A__s1", os.path.join(check, "record.json")); self.assertFalse(os.path.exists(check))
+
+    def test_rejected_record_keeps_its_scratch_folder(self):
+        folder = os.path.join(self.root, "scratch", "A__s1"); os.makedirs(folder)
+        shutil.copy(self.record(club="big stick"), os.path.join(folder, "record.json"))
+        self.assertNotEqual(self.run_cmd("file", "A__s1", os.path.join(folder, "record.json")).returncode, 0)
+        self.assertTrue(os.path.exists(os.path.join(folder, "record.json")))
+
+    def test_check_lists_soft_changes_without_counting_them(self):
+        self.run_ok("file", "A__s1", self.record())
+        second = copy.deepcopy(FACE_ON); second["club"] = "iron"; second["observations"][0]["present"] = "unreadable"
+        f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False); json.dump(second, f); f.close()
+        out = self.run_ok("check", "A__s1", f.name)
+        self.assertIn("AGREE", out); self.assertIn("also differ (not counted): hip_slide, club", out)
 
     def test_takeaway_frame_that_is_not_level_is_rejected(self):
         r = self.run_cmd("file", "A__s1", self.record(DTL, frames__takeaway__clubhead=[0.2, 8.5]))

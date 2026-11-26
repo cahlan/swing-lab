@@ -32,6 +32,7 @@ Read `SCRATCH/overview.jpg` and `SCRATCH/impact.jpg`.
 
 - **Is there a strike at IMPACT?** The club should reach the ball within a frame or two. If the strike is at a different time, rerun with the right `--impact` and set `impact_corrected` in the record to the reason. If there is no strike, no ball, or no golfer, stop and return a skip (see "Returning").
 - **View:** `face-on` (camera facing the chest, target to one side), `dtl` (down the line: camera behind the golfer, looking toward the target) or `angled` (in between).
+- **Camera line (down the line only):** where the camera stood. `on_line`: behind the hands, looking along the target line; you see the golfer side-on. `inside`: closer to the golfer's heel side; you see part of his back and the trail arm hides the lead arm. `outside`: beyond the ball side; you see part of his chest. `unknown` if you can't tell. An off-line camera shifts every inside/outside reading, so this matters.
 - **Handedness.** The definitions below are for a right-hander. Mirror left and right for a left-hander and say so in `notes`.
 - **Club.** `driver`, `wood`, `hybrid`, `iron`, `wedge` or `unknown`.
 - **High-speed clip?** The script says so above 100 fps. Widen the window, for example `--pre 8 --post 3`.
@@ -156,6 +157,7 @@ Write `SCRATCH/record.json`:
   "model": "the model you are, for example claude-opus-5-5",
   "view": "face-on",
   "club": "driver",
+  "camera_line": "on_line",
   "quality": "good",
   "impact_s": 5.05,
   "crop": [1.5, 8, 1.8, 9],
@@ -173,13 +175,15 @@ Write `SCRATCH/record.json`:
 }
 ```
 
-- `quality`: `good`, `usable` or `poor`.
+- `camera_line`: required for a down-the-line swing: `on_line`, `inside`, `outside` or `unknown`.
+- `quality`: count the problems: under 50 frames per second; camera off line or not square; camera moved; a body part or the club hidden at a key frame; golfer partly out of frame. None is `good`, one is `usable`, two or more is `poor`.
+- `impact_corrected`: set it only when the strike you confirmed is more than 0.25 s from `IMPACT`. Small differences need no note; just record your `impact_s`.
 - An `angled` view needs only `model`, `view`, `club`, `crop`, `summary` and whatever is readable.
-- Optional: `impact_corrected` (why the strike time changed) and `sanity_override` (see below).
+- Optional: `sanity_override` (see below).
 
 ## Returning
 
-Return to the caller, in a few lines and nothing else:
+Return to the caller exactly one of these and nothing else. Do not describe the swing, your readings or your answers; the caller must stay blind to them.
 
 - `record: SCRATCH/record.json` and `evidence: SCRATCH/keys.jpg`, or
 - `skip: <reason>` when there is no usable swing (no strike, practice swing with no ball, golfer cut off, too dark, camera moving throughout).

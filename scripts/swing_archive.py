@@ -29,6 +29,7 @@ STATUSES = ("extracted", "in_progress", "analyzed", "needs_review", "skipped", "
 VIEWS = ("face-on", "dtl", "angled")
 CLUBS = ("driver", "wood", "hybrid", "iron", "wedge", "unknown")
 ANSWERS = ("yes", "no", "unreadable")
+CAMERA_LINES = ("on_line", "inside", "outside", "unknown")   # down the line: where the camera stood
 FRAMES = {"face-on": ["address", "top", "impact", "finish"],
           "dtl": ["address", "takeaway", "top", "halfway", "delivery", "impact", "finish"]}
 CODES = {
@@ -276,6 +277,8 @@ def validate(rec):
     if not (isinstance(rec.get("crop"), list) and len(rec["crop"]) == 4): errs.append("crop must be [X0,X1,Y0,Y1]")
     if not rec.get("summary"): errs.append("summary is missing")
     view = rec.get("view")
+    if view == "dtl" and rec.get("camera_line") not in CAMERA_LINES:
+        errs.append("camera_line must be one of %s for a down-the-line swing" % (CAMERA_LINES,))
     if view in FRAMES:
         for f in FRAMES[view]:
             if f not in rec.get("frames", {}): errs.append("frames is missing '%s'" % f)
@@ -337,6 +340,16 @@ def sanity(rec, row, derived):
     return bad
 
 
+def clear_scratch(unit, record_path):
+    """Remove a reader's scratch folder once its record is safely stored, so a later reader cannot find it."""
+    folder = os.path.dirname(os.path.abspath(record_path))
+    parts = folder.replace("\\", "/").split("/")
+    if os.path.basename(folder) in (unit, unit + "_check") and "scratch" in parts[:-1]:
+        shutil.rmtree(folder, ignore_errors=True)
+    elif os.path.exists(record_path):
+        os.remove(record_path)
+
+
 def prepare(A, unit, path):
     row = A.row(unit); rec = json.load(open(path))
     errs = validate(rec)
@@ -373,6 +386,7 @@ def cmd_file(A, a):
     row.update(status=status, view=rec["view"], club=rec["club"], harness=rec["harness"], updated_utc=now(),
                note=("sanity override: " + rec["sanity_override"])[:200] if doubts else row["note"])
     A.save()                                                   # ... ledger last
+    clear_scratch(a.unit, a.record)
     print("filed %s as %s" % (a.unit, status))                 # quiet: the orchestrator stays blind to readings
     if a.show:
         for k, v in derived.items():
@@ -405,9 +419,15 @@ def cmd_check(A, a):
         if None not in (v, w) and abs(v - w) > TOLERANCE:
             diffs[k] = [w, v]
     was = {o["code"]: o["present"] for o in first.get("observations", [])}
+    soft = []                                                  # reported, not counted: one reader could not tell
     for o in second.get("observations", []):
         if {was.get(o["code"]), o["present"]} == {"yes", "no"}:
             flips.append(o["code"])
+        elif was.get(o["code"]) != o["present"]:
+            soft.append(o["code"])
+    for field in ("club", "quality", "camera_line"):
+        if first.get(field) != second.get(field):
+            soft.append(field)
     if first["view"] != second["view"]:
         flips.append("view")
     frame = 1.0 / float(row["fps"] or 30)
@@ -418,7 +438,7 @@ def cmd_check(A, a):
             times[f] = [t1, t2, round(abs(float(t1) - float(t2)) / frame)]
     agree = not diffs and len(flips) < 2
     json.dump({"unit_id": a.unit, "checked_utc": now(), "agree": agree, "measurement_diffs": diffs, "flipped": flips,
-               "frame_time_diffs": times,
+               "frame_time_diffs": times, "soft_changes": soft,
                "first_model": first.get("model"), "second_model": second.get("model"), "second": second, "second_derived": derived},
               open(os.path.join(A.dir, "checks", a.unit + ".json"), "w"), indent=1)
     row.update(checked="agree" if agree else "disagree", updated_utc=now())
@@ -429,11 +449,14 @@ def cmd_check(A, a):
     if diffs:                                                  # names only; the readings stay in the check file
         print("  measurements that differ: %s" % ", ".join(diffs))
     if flips:
-        print("  answers that flipped: %s" % ", ".join(flips))
+        print("  answers that flipped between yes and no: %s" % ", ".join(flips))
+    if soft:
+        print("  also differ (not counted): %s" % ", ".join(soft))
     for f, (t1, t2, n) in times.items():
         print("  key frame '%s' chosen %d frames apart (%ss vs %ss)" % (f, n, t1, t2))
     if diffs and not times:
         print("  the readers chose the same frames, so they read the landmarks differently")
+    clear_scratch(a.unit, a.record)
 
 
 # ---------------------------------------------------------------- roll-up, golden set, predictions
@@ -459,6 +482,9 @@ def cmd_rollup(A, a):
         if a.pivot:
             g += [("before " + a.pivot, [r for r in rs if r["recorded_utc"] and r["recorded_utc"][:10] < a.pivot]),
                   ("from " + a.pivot, [r for r in rs if r["recorded_utc"] and r["recorded_utc"][:10] >= a.pivot])]
+        if rs and rs[0]["view"] == "dtl":                      # an off-line camera distorts inside/outside readings
+            g += [("camera on line", [r for r in rs if r.get("camera_line") == "on_line"]),
+                  ("camera off line", [r for r in rs if r.get("camera_line") in ("inside", "outside")])]
         return [x for x in g if x[1]]
 
     for view in FRAMES:
