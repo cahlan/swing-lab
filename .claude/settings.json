@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 scripts/swing_archive.py *)",
+      "Bash(python3 scripts/swing_frames.py *)",
+      "Bash(python3 -m unittest *)"
+    ]
+  }
+}

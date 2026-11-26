@@ -1,0 +1,6 @@
+scratch/
+__pycache__/
+*.pyc
+.claude/settings.local.json
+.claude/archive_path.txt
+.DS_Store
