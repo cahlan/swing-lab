@@ -50,6 +50,8 @@ For each line:
 python3 scripts/swing_archive.py --root "ARCHIVE" mark UNIT --status skipped --note "<reason>"
 ```
 
+Run it from the repo root; it also deletes that swing's scratch folder.
+
 3. **If it returns a record, file it:**
 
 ```bash
@@ -111,7 +113,13 @@ When Cahlan asks for swings to be measured again, for example after the measurin
 python3 scripts/swing_archive.py --root "ARCHIVE" reset UNIT --note "<why>"
 ```
 
-The old record and check move to `_analysis/superseded/` and the swing is handed out again by `next`. Then run the loop and the checks as usual. Reset only the swings he names.
+The old record and check move to `_analysis/superseded/` and the swing is handed out again by `next`. A reset swing is always due for a check once it is measured again. Then run the loop and the checks as usual. Reset only the swings he names.
+
+If only a formula or a cutoff in the script changed, nothing needs measuring again:
+
+```bash
+python3 scripts/swing_archive.py --root "ARCHIVE" rederive
+```
 
 ## When something keeps going wrong
 

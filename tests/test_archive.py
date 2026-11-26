@@ -27,7 +27,7 @@ DTL = {
     "frames": {
         "address": {"t": 0.3, "hips_back": [2.6, 6.3], "head": [4.6, 4.1], "cap_top": [4.6, 3.6], "ground": [3, 9.2],
                     "hands": [5.3, 6.1], "ball": [9.4, 8.3], "clubhead": [9.3, 8.6]},
-        "takeaway": {"t": 0.6, "hands": [3.6, 6.2], "clubhead": [0.2, 6.7]},
+        "takeaway": {"t": 0.6, "hands": [3.6, 6.2], "clubhead": [0.2, 6.5]},
         "top": {"t": 1.0, "hands": [1.9, 3.8]}, "halfway": {"t": 1.3, "hands": [4.7, 5.9]},
         "delivery": {"t": 1.4, "hands": [5.8, 6.2], "clubhead": [3.5, 6.5]},
         "impact": {"t": 1.5, "hips_back": [2.5, 6.3], "head": [5.2, 4.5], "hands": [5.9, 6.3]},
@@ -56,11 +56,11 @@ class ArchiveTest(unittest.TestCase):
             shutil.copy(self.src, os.path.join(self.root, "Cahlan", name))
         self.run_ok("scan")
 
-    def run_cmd(self, *args):
-        return subprocess.run([sys.executable, SCRIPT, "--root", self.root, *args], capture_output=True, text=True)
+    def run_cmd(self, *args, cwd=None):
+        return subprocess.run([sys.executable, SCRIPT, "--root", self.root, *args], capture_output=True, text=True, cwd=cwd)
 
-    def run_ok(self, *args):
-        r = self.run_cmd(*args); self.assertEqual(r.returncode, 0, r.stdout + r.stderr); return r.stdout
+    def run_ok(self, *args, cwd=None):
+        r = self.run_cmd(*args, cwd=cwd); self.assertEqual(r.returncode, 0, r.stdout + r.stderr); return r.stdout
 
     def read(self, *parts):
         with open(os.path.join(self.root, "_analysis", *parts)) as f:
@@ -118,7 +118,7 @@ class ArchiveTest(unittest.TestCase):
     def test_down_the_line_reports_how_level_the_pinned_frames_are(self):
         self.run_ok("file", "A__s1", self.record(DTL))
         d = json.loads(self.read("records", "A__s1.json"))["derived"]
-        self.assertEqual((d["takeaway_level_error_pct_height"], d["delivery_level_error_pct_height"]), (8.9, 5.4))
+        self.assertEqual((d["takeaway_level_error_pct_height"], d["delivery_level_error_pct_height"]), (5.4, 5.4))
         self.assertEqual((d["clubhead_inside_hands_takeaway_pct_height"], d["clubhead_inside_hands_delivery_pct_height"]), (34.2, 23.1))
 
     def test_delivery_is_interpolated_between_two_frames_that_bracket_level(self):
@@ -137,7 +137,7 @@ class ArchiveTest(unittest.TestCase):
         self.assertIn("camera_line must be one of", self.run_cmd("file", "A__s1", self.record(DTL, camera_line="behind")).stderr)
         self.run_ok("file", "A__s1", self.record(DTL)); self.run_ok("file", "B__s1", self.record(DTL, camera_line="inside"))
         self.run_ok("rollup")
-        self.assertIn("| code | all | driver | camera on line | camera off line |", self.read("rollup.md"))
+        self.assertIn("| code | all | driver | camera on line | camera off line | under 50 fps |", self.read("rollup.md"))
 
     def test_filing_clears_the_readers_scratch_folder(self):
         folder = os.path.join(self.root, "scratch", "A__s1"); os.makedirs(folder)
@@ -158,10 +158,52 @@ class ArchiveTest(unittest.TestCase):
 
     def test_check_lists_soft_changes_without_counting_them(self):
         self.run_ok("file", "A__s1", self.record())
-        second = copy.deepcopy(FACE_ON); second["club"] = "iron"; second["observations"][0]["present"] = "unreadable"
+        second = copy.deepcopy(FACE_ON); second["club"] = "iron"; second["observations"][3]["present"] = "unreadable"
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False); json.dump(second, f); f.close()
         out = self.run_ok("check", "A__s1", f.name)
-        self.assertIn("AGREE", out); self.assertIn("also differ (not counted): hip_slide, club", out)
+        self.assertIn("AGREE", out); self.assertIn("also differ (not counted): early_release, club", out)
+
+    def test_script_decides_the_codes_that_follow_from_measurements(self):
+        judged_only = [o for o in FACE_ON["observations"] if o["code"] in (
+            "early_release", "trail_heel_up_before_impact", "ball_too_far_back", "ball_too_far_forward", "weak_grip", "strong_grip")]
+        self.run_ok("file", "A__s1", self.record(observations=judged_only)); self.run_ok("file", "B__s1", self.record(DTL))
+        face = json.loads(self.read("records", "A__s1.json"))["derived_codes"]
+        self.assertEqual(face, {"hip_slide": "no", "hang_back_finish": "yes", "sway_back": "no", "reverse_pivot": "no"})
+        dtl = json.loads(self.read("records", "B__s1.json"))["derived_codes"]
+        self.assertEqual(dtl, {"over_the_top": "no", "stuck_inside": "yes", "early_extension": "no", "inside_takeaway": "yes"})
+
+    def test_a_script_decided_code_changing_is_not_a_disagreement(self):
+        self.run_ok("file", "A__s1", self.record())
+        out = self.run_ok("check", "A__s1", self.record(frames__top__head=[4.55, 1.8]))     # 6 points: inside tolerance
+        self.assertIn("AGREE", out); self.assertIn("also differ (not counted): reverse_pivot", out)
+
+    def test_rederive_restores_derived_values_without_touching_readings(self):
+        self.run_ok("file", "A__s1", self.record())
+        path = os.path.join(self.root, "_analysis", "records", "A__s1.json")
+        rec = json.loads(self.read("records", "A__s1.json")); frames = rec["frames"]
+        del rec["derived_codes"]; rec["derived"] = {}
+        with open(path, "w") as f: json.dump(rec, f)
+        self.assertIn("rederived 1 records", self.run_ok("rederive"))
+        rec = json.loads(self.read("records", "A__s1.json"))
+        self.assertEqual(rec["derived"]["pelvis_shift_impact_pct_stance"], 12.0); self.assertEqual(rec["frames"], frames)
+        self.assertEqual(rec["derived_codes"]["hang_back_finish"], "yes")
+
+    def test_reset_swing_is_due_for_a_check_again(self):
+        self.run_ok("file", "A__s1", self.record()); self.run_ok("check", "A__s1", self.record())
+        self.run_ok("reset", "A__s1", "--note", "rule changed"); self.assertEqual(self.ledger()["A__s1"]["checked"], "due")
+        self.run_ok("file", "A__s1", self.record()); self.assertIn("A__s1", self.run_ok("checklist"))
+        self.run_ok("check", "A__s1", self.record()); self.assertEqual(self.ledger()["A__s1"]["checked"], "agree")
+
+    def test_skipping_a_swing_clears_its_scratch_folder(self):
+        folder = os.path.join(self.root, "scratch", "A__s1"); os.makedirs(folder)
+        self.run_ok("mark", "A__s1", "--status", "skipped", "--note", "no swing", cwd=self.root)
+        self.assertFalse(os.path.exists(folder))
+
+    def test_pivot_uses_the_local_day_not_the_utc_day(self):
+        self.run_ok("file", "A__s1", self.record())                # recorded 2026-06-04 18:59 UTC
+        self.run_ok("rollup", "--pivot", "2026-06-05"); self.assertIn("| code | all | driver | before 2026-06-05 |", self.read("rollup.md"))
+        self.run_ok("rollup", "--pivot", "2026-06-05", "--tz", "Pacific/Kiritimati")       # 14 hours ahead: already June 5
+        self.assertIn("| code | all | driver | from 2026-06-05 |", self.read("rollup.md"))
 
     def test_takeaway_frame_that_is_not_level_is_rejected(self):
         r = self.run_cmd("file", "A__s1", self.record(DTL, frames__takeaway__clubhead=[0.2, 8.5]))
@@ -190,7 +232,7 @@ class ArchiveTest(unittest.TestCase):
         self.run_ok("file", "A__s1", self.record()); self.run_ok("check", "A__s1", self.record())
         self.assertNotEqual(self.run_cmd("reset", "A__s1").returncode, 0)             # needs a reason
         self.run_ok("reset", "A__s1", "--note", "takeaway frame rule changed")
-        row = self.ledger()["A__s1"]; self.assertEqual((row["status"], row["checked"], row["attempts"]), ("extracted", "", "0"))
+        row = self.ledger()["A__s1"]; self.assertEqual((row["status"], row["checked"], row["attempts"]), ("extracted", "due", "0"))
         kept = os.listdir(os.path.join(self.root, "_analysis", "superseded")); self.assertEqual(len(kept), 2)
         self.assertFalse(os.path.exists(os.path.join(self.root, "_analysis", "records", "A__s1.json")))
         self.assertIn("A__s1", self.run_ok("next", "-n", "5"))
@@ -205,7 +247,7 @@ class ArchiveTest(unittest.TestCase):
         self.run_ok("check", "B__s1", self.record(frames__impact__pelvis_center=[6.6, 4.5]))
         self.run_ok("rollup", "--golfer", "Cahlan", "--pivot", "2026-07-08")
         text = self.read("rollup_Cahlan.md")
-        self.assertIn("face-on (1 swings)", text); self.assertIn("| hang_back_finish | 1 / 0 / 0 |", text)
+        self.assertIn("face-on (1 swings)", text); self.assertIn("| *hang_back_finish* | 1 / 0 / 0 |", text); self.assertIn("| early_release | 0 / 1 / 0 |", text)
         self.assertIn("before 2026-07-08", text); self.assertIn("0 agree, 1 disagree", text)
 
     def test_golden_set_scores_labels(self):

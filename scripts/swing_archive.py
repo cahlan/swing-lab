@@ -10,7 +10,8 @@
   swing_archive.py --root DIR file UNIT record.json [--evidence keys.jpg] [--show]
   swing_archive.py --root DIR checklist            analyzed swings that still need an independent check
   swing_archive.py --root DIR check UNIT second.json   compare an independent second reading
-  swing_archive.py --root DIR rollup [--golfer NAME] [--pivot YYYY-MM-DD]
+  swing_archive.py --root DIR rollup [--golfer NAME] [--pivot YYYY-MM-DD] [--tz America/Denver]
+  swing_archive.py --root DIR rederive             recompute measurements and script-decided codes from stored readings
   swing_archive.py --root DIR golden               score records against trusted labels in golden.csv
   swing_archive.py --root DIR score predictions.json   score a Profile's predictions
 
@@ -18,6 +19,7 @@ Everything it writes goes in DIR/_analysis. See SPEC.md.
 """
 import argparse, csv, json, os, shutil, statistics, subprocess, sys, zlib
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import swing_frames as sf
@@ -40,12 +42,25 @@ CODES = {
             "open_face_at_top", "closed_face_at_top", "weight_on_heels_at_address",
             "aimed_right", "aimed_left", "ball_starts_right", "ball_starts_left"],
 }
+# Codes a model answers by looking. Every other code is decided by the script from the measurements (see CUTS),
+# so its cutoff can change later without anyone re-reading a video.
+JUDGED = {
+    "face-on": ["early_release", "trail_heel_up_before_impact", "ball_too_far_back", "ball_too_far_forward",
+                "weak_grip", "strong_grip"],
+    "dtl": ["steep_at_halfway", "open_face_at_top", "closed_face_at_top", "weight_on_heels_at_address",
+            "aimed_right", "aimed_left", "ball_starts_right", "ball_starts_left"],
+}
+CUTS = {   # cutoffs for script-decided codes, in the measurements' own units. All are estimates until the golden set tests them.
+    "hip_slide_pelvis": 20.0, "hip_slide_past_foot": 0.0, "hang_back_finish": 33.0, "sway_back": -10.0, "reverse_pivot": 5.0,
+    "over_the_top": -5.0, "stuck_inside": 20.0, "stuck_hands_out": 3.0, "early_extension_hips": 4.0,
+    "early_extension_hands": 5.0, "inside_takeaway": 15.0,
+}
 MAX_ATTEMPTS = 3      # rejected records per swing before it is marked failed
 MAX_HANDOUT = 5       # swings handed out at once
 CHECK_EVERY = 5       # one swing in this many gets an independent second reading
 PILOT = 3             # the first swings analyzed are always checked
 TOLERANCE = 6.0       # points two readings of one measurement may differ
-LEVEL_LIMIT = {"takeaway": 12.0, "delivery": 8.0}    # how far off level a frame may be, % of height (estimates)
+LEVEL_LIMIT = {"takeaway": 8.0, "delivery": 8.0}     # how far off level a frame may be, % of height (estimates)
 
 
 def now():
@@ -191,7 +206,7 @@ def cmd_reset(A, a):
         src = os.path.join(A.dir, sub, a.unit + ".json")
         if os.path.exists(src):
             shutil.move(src, os.path.join(kept, "%s_%s_%s.json" % (a.unit, sub, stamp)))
-    r.update(status="extracted", attempts="0", checked="", note=("reset: " + a.note)[:200], updated_utc=now())
+    r.update(status="extracted", attempts="0", checked="due", note=("reset: " + a.note)[:200], updated_utc=now())
     A.save()
     print("reset %s: it will be handed out again; the old record is in _analysis/superseded/" % a.unit)
 
@@ -204,6 +219,9 @@ def cmd_mark(A, a):
         if getattr(a, k):
             r[k] = getattr(a, k)
     r["updated_utc"] = now(); A.save()
+    if r["status"] in ("skipped", "failed"):                   # nothing more will be read from this swing's scratch
+        for name in (a.unit, a.unit + "_check"):
+            shutil.rmtree(os.path.join(os.getcwd(), "scratch", name), ignore_errors=True)
     print("marked %s: status=%s note=%s" % (a.unit, r["status"], r["note"]))
 
 
@@ -284,7 +302,7 @@ def validate(rec):
             if f not in rec.get("frames", {}): errs.append("frames is missing '%s'" % f)
             elif (rec["frames"][f] or {}).get("t") is None: errs.append("frames.%s has no time 't'" % f)
         got = {o.get("code"): o for o in rec.get("observations", [])}
-        for c in CODES[view]:
+        for c in JUDGED[view]:
             o = got.get(c)
             if not o: errs.append("observations is missing '%s'" % c)
             elif o.get("present") not in ANSWERS: errs.append("%s.present must be one of %s" % (c, ANSWERS))
@@ -350,6 +368,34 @@ def clear_scratch(unit, record_path):
         os.remove(record_path)
 
 
+def derive_codes(view, d):
+    """Codes the script decides from measurements. Returns {code: yes / no / unreadable}."""
+    def any_of(*tests):                                        # yes if any holds; unreadable only if nothing was measured
+        seen = [t for t in tests if t is not None]
+        return "unreadable" if not seen else ("yes" if any(seen) else "no")
+
+    def all_of(*tests):                                        # needs every measurement
+        return "unreadable" if any(t is None for t in tests) else ("yes" if all(tests) else "no")
+
+    def over(name, cut): return None if d.get(name) is None else d[name] > CUTS[cut]
+    def under(name, cut): return None if d.get(name) is None else d[name] < CUTS[cut]
+
+    if view == "face-on":
+        return {"hip_slide": any_of(over("pelvis_shift_impact_pct_stance", "hip_slide_pelvis"),
+                                    over("lead_hip_past_lead_foot_impact_pct_stance", "hip_slide_past_foot")),
+                "hang_back_finish": any_of(over("head_short_of_lead_foot_finish_pct_stance", "hang_back_finish")),
+                "sway_back": any_of(under("head_shift_top_pct_stance", "sway_back")),
+                "reverse_pivot": any_of(over("head_shift_top_pct_stance", "reverse_pivot"))}
+    if view == "dtl":
+        return {"over_the_top": any_of(under("clubhead_inside_hands_delivery_pct_height", "over_the_top")),
+                "stuck_inside": all_of(over("clubhead_inside_hands_delivery_pct_height", "stuck_inside"),
+                                       over("hands_out_impact_pct_height", "stuck_hands_out")),
+                "early_extension": any_of(over("hips_toward_ball_impact_pct_height", "early_extension_hips"),
+                                          over("hands_higher_impact_pct_height", "early_extension_hands")),
+                "inside_takeaway": any_of(over("clubhead_inside_hands_takeaway_pct_height", "inside_takeaway"))}
+    return {}
+
+
 def prepare(A, unit, path):
     row = A.row(unit); rec = json.load(open(path))
     errs = validate(rec)
@@ -372,7 +418,8 @@ def cmd_file(A, a):
             row["attempts"], MAX_ATTEMPTS, "; unit marked failed, move on" if row["status"] == "failed" else "", "\n  ".join(errs)))
     f = row["file"].replace("\\", "/")
     rec.update(unit_id=a.unit, file=row["file"], recorded_utc=row["recorded_utc"], fps=row["fps"],
-               golfer=f.split("/")[0] if "/" in f else "", derived=derived, harness=harness_version(), filed_utc=now())
+               golfer=f.split("/")[0] if "/" in f else "", derived=derived,
+               derived_codes=derive_codes(view_of(rec), derived), harness=harness_version(), filed_utc=now())
     if row["recorded_utc"] and rec.get("impact_s") is not None:
         rec["impact_utc"] = (sf.utc(row["recorded_utc"]) + timedelta(seconds=float(rec["impact_s"]))).strftime("%Y-%m-%d %H:%M:%S")
     if a.evidence:
@@ -393,11 +440,15 @@ def cmd_file(A, a):
             print("  %-46s %s" % (k, "unreadable" if v is None else v))
 
 
+def view_of(rec):
+    return rec.get("view")
+
+
 def due_for_check(A):
     done = sorted((r for r in A.rows if r["status"] == "analyzed"), key=lambda r: r["updated_utc"])
     pilot = {r["unit_id"] for r in done[:PILOT]}
-    return [r for r in done if not r["checked"] and
-            (r["unit_id"] in pilot or zlib.crc32(r["unit_id"].encode()) % CHECK_EVERY == 0)]
+    return [r for r in done if r["checked"] in ("", "due") and                 # "due": re-measured after a reset
+            (r["checked"] == "due" or r["unit_id"] in pilot or zlib.crc32(r["unit_id"].encode()) % CHECK_EVERY == 0)]
 
 
 def cmd_checklist(A, a):
@@ -418,13 +469,20 @@ def cmd_check(A, a):
         w = first.get("derived", {}).get(k)
         if None not in (v, w) and abs(v - w) > TOLERANCE:
             diffs[k] = [w, v]
+    judged = JUDGED.get(second["view"], [])
     was = {o["code"]: o["present"] for o in first.get("observations", [])}
-    soft = []                                                  # reported, not counted: one reader could not tell
+    soft = []                                                  # reported, not counted
     for o in second.get("observations", []):
+        if o["code"] not in judged:
+            continue
         if {was.get(o["code"]), o["present"]} == {"yes", "no"}:
             flips.append(o["code"])
         elif was.get(o["code"]) != o["present"]:
-            soft.append(o["code"])
+            soft.append(o["code"])                             # one reader could not tell
+    then = first.get("derived_codes") or derive_codes(first["view"], first.get("derived", {}))
+    for code, ans in derive_codes(second["view"], derived).items():
+        if then.get(code) != ans:
+            soft.append(code)                                  # follows a measurement; the measurement is what is compared
     for field in ("club", "quality", "camera_line"):
         if first.get(field) != second.get(field):
             soft.append(field)
@@ -461,8 +519,16 @@ def cmd_check(A, a):
 
 # ---------------------------------------------------------------- roll-up, golden set, predictions
 
+def local_date(rec, tz):
+    """The calendar day the swing was filmed where the golfer lives. File timestamps are UTC."""
+    t = sf.utc(rec.get("recorded_utc"))
+    return t.astimezone(ZoneInfo(tz)).strftime("%Y-%m-%d") if t else ""
+
+
 def cmd_rollup(A, a):
     recs = A.records(a.golfer)
+    for r in recs:
+        r["day"] = local_date(r, a.tz)
     L = ["# Swing roll-up%s" % (": " + a.golfer if a.golfer else ""), "",
          "Generated %s UTC from %d swing records. Counts only; no interpretation." % (now(), len(recs)), ""]
     st = {}
@@ -480,11 +546,13 @@ def cmd_rollup(A, a):
         g = [("all", rs), ("driver", [r for r in rs if r["club"] == "driver"]),
              ("not driver", [r for r in rs if r["club"] != "driver"])]
         if a.pivot:
-            g += [("before " + a.pivot, [r for r in rs if r["recorded_utc"] and r["recorded_utc"][:10] < a.pivot]),
-                  ("from " + a.pivot, [r for r in rs if r["recorded_utc"] and r["recorded_utc"][:10] >= a.pivot])]
+            g += [("before " + a.pivot, [r for r in rs if r["day"] and r["day"] < a.pivot]),
+                  ("from " + a.pivot, [r for r in rs if r["day"] and r["day"] >= a.pivot])]
         if rs and rs[0]["view"] == "dtl":                      # an off-line camera distorts inside/outside readings
             g += [("camera on line", [r for r in rs if r.get("camera_line") == "on_line"]),
-                  ("camera off line", [r for r in rs if r.get("camera_line") in ("inside", "outside")])]
+                  ("camera off line", [r for r in rs if r.get("camera_line") in ("inside", "outside")]),
+                  ("50+ fps", [r for r in rs if float(r.get("fps") or 0) >= 50]),      # the club's position coming
+                  ("under 50 fps", [r for r in rs if float(r.get("fps") or 0) < 50])]   # down is far less exact here
         return [x for x in g if x[1]]
 
     for view in FRAMES:
@@ -492,13 +560,14 @@ def cmd_rollup(A, a):
         if not rs:
             continue
         L += ["## %s (%d swings)" % (view, len(rs)), "", "### Observations: yes / no / unreadable", "",
+              "Codes in *italics* are decided by the script from the measurements below; the rest are a reader's call.", "",
               "| code | " + " | ".join(n for n, _ in groups(rs)) + " |", "|---|" + "---|" * len(groups(rs))]
         for c in CODES[view]:
             cells = []
             for _, g in groups(rs):
-                ans = [o["present"] for r in g for o in r["observations"] if o["code"] == c]
+                ans = [lookup(r, c) or "unreadable" for r in g]
                 cells.append("%d / %d / %d" % tuple(ans.count(x) for x in ANSWERS))
-            L.append("| %s | %s |" % (c, " | ".join(cells)))
+            L.append("| %s | %s |" % (c if c in JUDGED[view] else "*%s*" % c, " | ".join(cells)))
         L += ["", "### Measurements: median (25th to 75th percentile), n", "",
               "| measurement | " + " | ".join(n for n, _ in groups(rs)) + " |", "|---|" + "---|" * len(groups(rs))]
         for m in sorted({k for r in rs for k in r.get("derived", {})}):
@@ -515,7 +584,7 @@ def cmd_rollup(A, a):
     L += ["## Every swing", "", "| recorded | unit | view | club | quality | checked | summary |", "|---|---|---|---|---|---|---|"]
     chk = {r["unit_id"]: r["checked"] for r in A.rows}
     for r in sorted(recs, key=lambda r: r["recorded_utc"]):
-        L.append("| %s | %s | %s | %s | %s | %s | %s |" % (r["recorded_utc"][:10], r["unit_id"], r["view"], r["club"],
+        L.append("| %s | %s | %s | %s | %s | %s | %s |" % (r["day"], r["unit_id"], r["view"], r["club"],
                                                          r.get("quality", ""), chk.get(r["unit_id"], ""), r["summary"].replace("|", "/")))
     out = os.path.join(A.dir, "rollup%s.md" % ("_" + a.golfer if a.golfer else ""))
     open(out, "w").write("\n".join(L) + "\n")
@@ -524,12 +593,34 @@ def cmd_rollup(A, a):
 
 def lookup(rec, field):
     """A record's value for a golden or prediction field: view, club, an observation code, or a measurement."""
-    if field in ("view", "club"):
+    if field in ("view", "club", "camera_line", "quality"):
         return rec.get(field)
-    for o in rec.get("observations", []):
-        if o["code"] == field:
-            return o["present"]
+    if field in rec.get("derived_codes", {}):
+        return rec["derived_codes"][field]
+    if field in JUDGED.get(rec.get("view"), []):
+        for o in rec.get("observations", []):
+            if o["code"] == field:
+                return o["present"]
     return rec.get("derived", {}).get(field)
+
+
+def cmd_rederive(A, a):
+    """Recompute measurements and script-decided codes for every record from its stored readings.
+    The readings themselves are never touched. Use after changing a formula or a cutoff."""
+    n = 0
+    for row in A.rows:
+        path = A.record_path(row["unit_id"])
+        if not os.path.exists(path):
+            continue
+        rec = json.load(open(path))
+        if rec.get("view") not in FRAMES:
+            continue
+        rec["derived"] = derive(rec, row); rec["derived_codes"] = derive_codes(rec["view"], rec["derived"])
+        rec["rederived"] = {"utc": now(), "harness": harness_version()}
+        with open(path + ".tmp", "w") as fh:
+            json.dump(rec, fh, indent=1)
+        os.replace(path + ".tmp", path); n += 1
+    print("rederived %d records with harness %s" % (n, harness_version()))
 
 
 def cmd_golden(A, a):
@@ -584,7 +675,7 @@ def cmd_score(A, a):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--root", required=True)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("scan", "status", "checklist", "golden", "resume"):
+    for name in ("scan", "status", "checklist", "golden", "resume", "rederive"):
         sub.add_parser(name)
     p = sub.add_parser("next"); p.add_argument("-n", type=int, default=3)
     p = sub.add_parser("mark"); p.add_argument("unit")
@@ -594,10 +685,11 @@ def main():
     p = sub.add_parser("reset"); p.add_argument("unit"); p.add_argument("--note", default="")
     p = sub.add_parser("check"); p.add_argument("unit"); p.add_argument("record")
     p = sub.add_parser("rollup"); p.add_argument("--pivot", default=""); p.add_argument("--golfer", default="")
+    p.add_argument("--tz", default="America/Denver", help="time zone the swings were filmed in; dates are local")
     p = sub.add_parser("score"); p.add_argument("predictions"); p.add_argument("--golfer", default="")
     a = ap.parse_args(); A = Archive(a.root)
     {"scan": cmd_scan, "status": cmd_status, "next": cmd_next, "resume": cmd_resume, "reset": cmd_reset,
-     "mark": cmd_mark, "file": cmd_file,
+     "mark": cmd_mark, "file": cmd_file, "rederive": cmd_rederive,
      "checklist": cmd_checklist, "check": cmd_check, "rollup": cmd_rollup, "golden": cmd_golden, "score": cmd_score}[a.cmd](A, a)
 
 

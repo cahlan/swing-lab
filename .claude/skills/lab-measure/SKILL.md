@@ -66,7 +66,7 @@ python3 scripts/swing_frames.py VIDEO --out SCRATCH --impact T --crop X0,X1,Y0,Y
 3. On each candidate still, read `hands` and `clubhead`. For each set of five, choose the one with the smallest difference between the clubhead's y and the hands' y. If two tie, take the earlier.
 4. If the best candidate is the first or last of its five, the level frame may be outside the window. Shift the window that way and repeat.
 5. Use the chosen times as `takeaway` and `delivery` in the next step.
-6. **Delivery needs a second frame.** Coming down, the clubhead can travel a third of the golfer's height between two frames, so the level moment usually falls between them. Also record the adjacent candidate on the other side of level as `delivery_other`, with its `t`, `hands` and `clubhead`. If the clubhead is above the hands in `delivery`, `delivery_other` is the next frame, where it is below, and the reverse. The script reads the level moment off the two. If the clubhead can't be read in either frame, record that clubhead as `null`.
+6. **Both need a second frame.** The level moment usually falls between two frames. Coming down, the clubhead can travel a third of the golfer's height in one frame; going back at 30 frames per second it moves enough to change the reading. For each of takeaway and delivery, also record the adjacent candidate on the other side of level as `takeaway_other` and `delivery_other`, with its `t`, `hands` and `clubhead`. If the clubhead is below the hands in `takeaway`, `takeaway_other` is the next frame, where it is above, and the reverse. The script reads the level moment off the two. If the clubhead can't be read in a frame, record that clubhead as `null`.
 
 Read `hands` as the middle of the grip, between the two hands, and `clubhead` as the center of the clubhead, on every frame.
 
@@ -107,22 +107,20 @@ Each is `[x, y]` on the cropped grid, or `null`. Each key frame also has `t`, it
 | top | `hands` |
 | halfway | `hands` |
 | delivery | `hands`, `clubhead` |
-| delivery_other (the adjacent frame across level) | `hands`, `clubhead` |
+| takeaway_other, delivery_other (the adjacent frame across level) | `hands`, `clubhead` |
 | impact | `hips_back`, `head`, `hands` |
 | finish | time only |
 
 ## Observations
 
-Answer every code for the view: `yes`, `no` or `unreadable`, with `confidence` (`high`, `medium`, `low`). A `yes` needs `evidence` naming the frame and the readings. The numbers are judgment aids; the landmarks are the primary data.
+Answer every code below for the view: `yes`, `no` or `unreadable`, with `confidence` (`high`, `medium`, `low`). A `yes` needs `evidence` naming the frame and what you saw.
+
+These are only the things a reader has to look at. Anything that follows from positions, such as whether the hips moved toward the ball or the clubhead was inside the hands, is worked out by the script from your landmarks. Do not answer those; read the landmarks carefully.
 
 **Face-on**
 
 | Code | Yes when |
 | --- | --- |
-| `hip_slide` | Lead hip's outer edge at impact is past the lead foot's outer edge, or the pelvis center has moved more than about 20% of stance width toward the target |
-| `hang_back_finish` | At the finish the head is more than about a third of stance width short of the lead foot and the upper body leans away from the target |
-| `sway_back` | Head moves away from the target more than about 10% of stance width by the top |
-| `reverse_pivot` | Head or upper body moves toward the target by the top |
 | `early_release` | Shaft passes the lead arm before the hands reach the trail thigh |
 | `trail_heel_up_before_impact` | Trail heel is clearly off the ground in the frame before the strike |
 | `ball_too_far_back` | Ball is well back of where that club is normally played (driver: back of the lead heel) |
@@ -136,10 +134,6 @@ For the grip codes, rerun with a tight crop on the hands at address if needed. S
 
 | Code | Yes when |
 | --- | --- |
-| `over_the_top` | At delivery the clubhead is outside the hands, or the club reappears low and left of the lead shoulder after impact |
-| `stuck_inside` | At delivery the clubhead is well inside the hands, behind the trail thigh, and the hands are farther from the body at impact than at address |
-| `early_extension` | Hips move off the address line toward the ball by impact, or the hands are clearly higher at impact than at address |
-| `inside_takeaway` | At takeaway the clubhead is well inside the hands |
 | `steep_at_halfway` | At halfway the shaft crosses the trail shoulder or upper arm, not the forearm or elbow |
 | `open_face_at_top` | Lead wrist cupped, toe of the club hanging down |
 | `closed_face_at_top` | Lead wrist bowed, clubface toward the sky |
@@ -167,8 +161,8 @@ Write `SCRATCH/record.json`:
     "top": {"t": 4.80, "head": [4.3, 1.8]}
   },
   "observations": [
-    {"code": "hip_slide", "present": "no", "confidence": "high", "evidence": ""},
-    {"code": "hang_back_finish", "present": "yes", "confidence": "medium", "evidence": "finish t=5.94: head 4.6, lead foot 7.0"}
+    {"code": "early_release", "present": "no", "confidence": "high", "evidence": ""},
+    {"code": "trail_heel_up_before_impact", "present": "yes", "confidence": "medium", "evidence": "t=5.03, one frame before the strike: heel clearly off the ground"}
   ],
   "summary": "One plain sentence on what this swing shows.",
   "notes": "Anything odd: slow motion, sleeve hides the grip, left-handed."
