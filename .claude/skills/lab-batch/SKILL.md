@@ -56,7 +56,7 @@ python3 scripts/swing_archive.py --root "ARCHIVE" mark UNIT --status skipped --n
 python3 scripts/swing_archive.py --root "ARCHIVE" file UNIT scratch/UNIT/record.json --evidence scratch/UNIT/keys.jpg
 ```
 
-`file` prints one line and no readings. Do not pass `--show`; the readings are not for you.
+`file` prints one line and no readings. Do not pass `--show`; the readings are not for you. Once a record is filed, `file` deletes that swing's scratch folder, so a later checker cannot find the first reading. Do not keep copies.
 
 4. **If `file` prints `RECORD REJECTED`,** send the rejection text back to the same subagent and file again. The script marks the swing `failed` after three rejections; when it says so, move on.
 
@@ -97,7 +97,7 @@ Report, in a few lines:
 - Anything odd about the videos (several swings in one file, slow motion, wrong golfer).
 - Roughly how long each swing took.
 
-Do not read or interpret the roll-up. Do not propose a diagnosis.
+Report only what the scripts printed and how the run went. If a subagent tells you anything about a swing beyond its record path or a skip reason, leave it out of the report and do not pass it to any other agent. Do not read or interpret the roll-up. Do not propose a diagnosis.
 
 ## First run: pilot
 
