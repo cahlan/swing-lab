@@ -60,6 +60,7 @@ MAX_HANDOUT = 5       # swings handed out at once
 CHECK_EVERY = 5       # one swing in this many gets an independent second reading
 PILOT = 3             # the first swings analyzed are always checked
 TOLERANCE = 6.0       # points two readings of one measurement may differ
+FINISH_AFTER = 1.0    # the finish frame is this many seconds after impact, so two readers pick the same one
 LEVEL_LIMIT = {"takeaway": 8.0, "delivery": 8.0}     # how far off level a frame may be, % of height (estimates)
 
 
@@ -272,6 +273,9 @@ def derive(rec, row):
         out["head_drop_impact_pct_height"] = move("head", "impact", 1, height)
         out["hands_out_impact_pct_height"] = move("hands", "impact", 0, height, toward)
         out["hands_higher_impact_pct_height"] = move("hands", "impact", 1, height, -1.0)
+        # How far the ball sits beyond the hands at address, as the camera sees it. For one golfer and one club this
+        # moves with where the camera stood, so it is a measured stand-in for the reader-judged camera_line.
+        out["ball_beyond_hands_address_pct_height"] = move("ball", "address", 0, height, toward, ("address", "hands"))
         for f in ("takeaway", "delivery"):                                           # + = clubhead inside the hands
             inside = move("clubhead", f, 0, height, -toward, (f, "hands"))
             off = move("clubhead", f, 1, height, 1.0, (f, "hands"))                  # 0 = clubhead level with the hands
@@ -327,6 +331,12 @@ def sanity(rec, row, derived):
     if row["impact_s"] and abs(float(fr["impact"]["t"]) - float(row["impact_s"])) > 0.25 and not rec.get("impact_corrected"):
         bad.append("impact frame t=%s is far from the ledger strike at %ss (set impact_corrected with the reason if the ledger was wrong)"
                    % (fr["impact"]["t"], row["impact_s"]))
+    want = float(fr["impact"]["t"]) + FINISH_AFTER             # finish is a fixed time after impact, not a judgment
+    if row.get("duration_s"):
+        want = min(want, float(row["duration_s"]) - 1.0 / float(row["fps"] or 30))
+    if abs(float(fr["finish"]["t"]) - want) > 0.06:
+        bad.append("finish frame must be %.1f s after impact (t=%.2f here), or the last frame if the clip ends sooner; got t=%s"
+                   % (FINISH_AFTER, want, fr["finish"]["t"]))
     A0 = fr["address"]
     def y(m): return None if A0.get(m) is None else float(A0[m][1])
     if None not in (y("cap_top"), y("head"), y("ground")) and not (y("cap_top") <= y("head") < y("ground")):

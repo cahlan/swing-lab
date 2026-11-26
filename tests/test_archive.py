@@ -13,11 +13,11 @@ FACE_ON = {
                     "lead_hip_outer": [6.5, 4.4], "ball": [6.4, 9.0], "hands": [5.9, 4.4]},
         "top": {"t": 1.2, "head": [4.3, 1.8], "pelvis_center": [4.9, 4.4]},
         "impact": {"t": 1.5, "head": [4.2, 2.4], "pelvis_center": [5.6, 4.5], "lead_hip_outer": [7.0, 4.5]},
-        "finish": {"t": 2.4, "head": [4.6, 1.8]}},
+        "finish": {"t": 2.5, "head": [4.6, 1.8]}},
     "observations": [{"code": c, "present": "no", "confidence": "high", "evidence": ""} for c in (
         "hip_slide", "sway_back", "reverse_pivot", "early_release", "trail_heel_up_before_impact",
         "ball_too_far_back", "ball_too_far_forward", "weak_grip", "strong_grip")] + [
-        {"code": "hang_back_finish", "present": "yes", "confidence": "medium", "evidence": "finish t=2.4: head 4.6, lead foot 7.0"}],
+        {"code": "hang_back_finish", "present": "yes", "confidence": "medium", "evidence": "finish t=2.5: head 4.6, lead foot 7.0"}],
     "summary": "Stable head, modest hip shift, hangs back at the finish."}
 
 
@@ -31,7 +31,7 @@ DTL = {
         "top": {"t": 1.0, "hands": [1.9, 3.8]}, "halfway": {"t": 1.3, "hands": [4.7, 5.9]},
         "delivery": {"t": 1.4, "hands": [5.8, 6.2], "clubhead": [3.5, 6.5]},
         "impact": {"t": 1.5, "hips_back": [2.5, 6.3], "head": [5.2, 4.5], "hands": [5.9, 6.3]},
-        "finish": {"t": 2.4}},
+        "finish": {"t": 2.5}},
     "observations": [{"code": c, "present": "unreadable", "confidence": "low", "evidence": ""} for c in (
         "over_the_top", "stuck_inside", "early_extension", "inside_takeaway", "steep_at_halfway", "open_face_at_top",
         "closed_face_at_top", "weight_on_heels_at_address", "aimed_right", "aimed_left", "ball_starts_right", "ball_starts_left")],
@@ -204,6 +204,15 @@ class ArchiveTest(unittest.TestCase):
         self.run_ok("rollup", "--pivot", "2026-06-05"); self.assertIn("| code | all | driver | before 2026-06-05 |", self.read("rollup.md"))
         self.run_ok("rollup", "--pivot", "2026-06-05", "--tz", "Pacific/Kiritimati")       # 14 hours ahead: already June 5
         self.assertIn("| code | all | driver | from 2026-06-05 |", self.read("rollup.md"))
+
+    def test_finish_frame_must_be_one_second_after_impact(self):
+        r = self.run_cmd("file", "A__s1", self.record(frames__finish__t=2.2))
+        self.assertIn("finish frame must be 1.0 s after impact (t=2.50 here)", r.stderr)
+        self.run_ok("file", "A__s1", self.record(frames__finish__t=2.53))               # within a frame or two
+
+    def test_camera_stand_in_is_measured_from_address_landmarks(self):
+        self.run_ok("file", "A__s1", self.record(DTL))
+        self.assertEqual(json.loads(self.read("records", "A__s1.json"))["derived"]["ball_beyond_hands_address_pct_height"], 41.2)
 
     def test_takeaway_frame_that_is_not_level_is_rejected(self):
         r = self.run_cmd("file", "A__s1", self.record(DTL, frames__takeaway__clubhead=[0.2, 8.5]))

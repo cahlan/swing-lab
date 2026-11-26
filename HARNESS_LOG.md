@@ -4,6 +4,8 @@ Each entry is a failure that actually happened and the part of the harness it ch
 
 | Date | What went wrong | What changed |
 | --- | --- | --- |
+| 2026-11-26 | Re-run of 10: every check agreed, but readers chose the finish frame up to 23 frames apart. Face-on, the head's position at the finish is measured there | Finish is the frame 1.0 s after impact, or the last frame if the clip ends sooner; the script rejects any other |
+| 2026-11-26 | Re-run of 10: `camera_line` differed in six of ten checks, so the roll-up's on-line and off-line split cannot be trusted | Added a measured stand-in from existing landmarks, `ball_beyond_hands_address_pct_height`. Experimental: it also varies with club and posture. `camera_line` stays in the record but should not carry conclusions |
 | 2026-11-26 | First batch of 10: four of six checks agreed. Yes/no answers were the weak part: `early_extension` flipped in three of six, and one swing disagreed on answers alone with every measurement agreeing | Codes that follow from positions are now decided by the script from the measurements (`CUTS`); readers answer only what needs eyes. `rederive` recomputes records after a cutoff changes. Checks count flips only on reader-judged codes |
 | 2026-11-26 | Takeaway disagreed again on a 30 fps video, with frames chosen two apart | Takeaway also records the adjacent frame across level (`takeaway_other`) and is interpolated; its off-level limit drops from 12% to 8% |
 | 2026-11-26 | Two swings filmed the evening of July 7 local time were dated July 8 (UTC) and fell on the wrong side of the roll-up's date split | The roll-up dates swings by local day (`--tz`, default America/Denver) |

@@ -47,6 +47,7 @@ python3 scripts/swing_frames.py VIDEO --out SCRATCH --impact T --crop X0,X1,Y0,Y
 Read `swing.jpg`, `impact.jpg` and `after.jpg`. Pick key times off the labels:
 
 - **Face-on:** `address` (last still frame before takeaway), `top`, `impact`, `finish`.
+- **Finish is not a judgment.** In both views it is the frame 1.0 s after your impact frame. If the clip ends sooner, it is the last frame.
 - **Down the line:** `address`, `takeaway`, `top`, `halfway` (lead arm parallel to the ground coming down), `delivery`, `impact`, `finish`. Takeaway and delivery are roughly where the shaft is parallel to the ground; Step 3 pins them exactly.
 
 ## Step 3: pin the takeaway and delivery frames (down the line only)
