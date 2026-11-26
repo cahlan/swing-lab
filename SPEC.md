@@ -87,7 +87,9 @@ Records carry the git commit of the code that produced them. Records from differ
 | `skipped` | Not a usable swing | `mark` |
 | `failed` | Could not be processed | `scan`, `file` after three rejections |
 
-**Record.** Raw readings only: view, club, quality, crop, key-frame times, landmark positions on a 0 to 10 grid, and a yes / no / unreadable answer for every observation code, with evidence for each yes. The script adds the comparable measurements, the golfer, the analyzer version and timestamps. The exact fields are in `.claude/skills/lab-measure/SKILL.md`.
+**Record.** Raw readings only: view, club, camera line, quality, crop, key-frame times, landmark positions on a 0 to 10 grid, and a yes / no / unreadable answer for the few things a reader has to look at, with evidence for each yes. The script adds the comparable measurements, the codes that follow from them, the golfer, the analyzer version and timestamps.
+
+**Two kinds of code.** A code that follows from positions, such as hip slide or clubhead inside the hands, is decided by the script from the measurements, using cutoffs in one table (`CUTS`). A code that needs eyes, such as grip or ball start, is a reader's call. Because the first kind is computed, a cutoff can change and `rederive` recomputes every record without anyone re-reading a video. Raw readings are never edited; derived values are. The exact fields are in `.claude/skills/lab-measure/SKILL.md`.
 
 **Comparable measurements.** Sideways movement face-on is a percentage of stance width. Vertical movement, and all movement down the line, is a percentage of the golfer's height at address. These hold at any camera distance.
 
@@ -142,7 +144,8 @@ Nothing runs on a timer more often than the archive changes.
 
 - Nothing has run end to end in Claude Code on the real archive.
 - Finding several strikes in one long video by sound is untested on real footage.
-- The observation thresholds are estimates. Until the golden set tests them, measurements are trusted over observation codes.
+- The cutoffs for script-decided codes are estimates. Until the golden set tests them, measurements are trusted over codes.
+- Most of the first archive is 30 frames per second, where the club's position coming into the ball is poorly resolved. The roll-up separates those swings.
 - The plausibility ranges are estimates and may reject a real but unusual setup. `sanity_override` exists for that and routes the record to review.
 - The golden set is empty.
 

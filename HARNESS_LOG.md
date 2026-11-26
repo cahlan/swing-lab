@@ -4,6 +4,12 @@ Each entry is a failure that actually happened and the part of the harness it ch
 
 | Date | What went wrong | What changed |
 | --- | --- | --- |
+| 2026-11-26 | First batch of 10: four of six checks agreed. Yes/no answers were the weak part: `early_extension` flipped in three of six, and one swing disagreed on answers alone with every measurement agreeing | Codes that follow from positions are now decided by the script from the measurements (`CUTS`); readers answer only what needs eyes. `rederive` recomputes records after a cutoff changes. Checks count flips only on reader-judged codes |
+| 2026-11-26 | Takeaway disagreed again on a 30 fps video, with frames chosen two apart | Takeaway also records the adjacent frame across level (`takeaway_other`) and is interpolated; its off-level limit drops from 12% to 8% |
+| 2026-11-26 | Two swings filmed the evening of July 7 local time were dated July 8 (UTC) and fell on the wrong side of the roll-up's date split | The roll-up dates swings by local day (`--tz`, default America/Denver) |
+| 2026-11-26 | Nine of the first twelve videos are 30 fps, where delivery is poorly resolved | The roll-up splits down-the-line swings into 50+ fps and under 50 fps |
+| 2026-11-26 | Swings re-measured after a reset were not checked again | A reset swing is always due for a check |
+| 2026-11-26 | Skipped swings left their scratch folders behind | `mark` clears scratch for skipped and failed swings |
 | 2026-11-25 | Re-run: the first reader's scratch folder, with its record, was still on disk when the checker started. The orchestrator moved old folders by hand | `file` and `check` delete the reader's scratch folder once the record is stored |
 | 2026-11-25 | Re-run: readers said the camera was off the target line and might exaggerate an outside club, but only in free text | Required `camera_line` field for down-the-line swings; the roll-up splits camera on line from off line |
 | 2026-11-25 | Re-run: subagents described their readings to the orchestrator, which put them in its report | `lab-measure` returns a path or a skip and nothing else; `lab-batch` reports only script output |

@@ -49,7 +49,8 @@ Do this before reading the Model, the Constitution or the Living Log. If they ar
 - **Baseline.** For each measurement with 8 or more values, his normal range is the 25th to 75th percentile. This replaces generic thresholds for judging his future swings.
 - **Change over time.** Compare periods (the roll-up's pivot date, or halves of the year). Call a change only when both sides have at least 4 swings and the medians differ by more than 6 points, the tolerance the independent check uses.
 - **Mind the camera.** For down-the-line swings the roll-up splits "camera on line" from "camera off line". An off-line camera shifts every inside/outside reading, so base claims about the club's position on the on-line swings and report the off-line ones separately.
-- **Lean on measurements.** The observation codes rest on thresholds that are estimates. Where a code and its measurement disagree, trust the measurement.
+- **Mind the frame rate.** The roll-up also splits down-the-line swings into 50+ and under 50 frames per second. Below 50, the club's position coming into the ball is poorly resolved; say what the faster swings show and treat the slower ones as weak evidence.
+- **Lean on measurements.** Codes in italics in the roll-up are decided by the script from measurements, using cutoffs that are estimates. Report the measurement's median and range beside any such code, and where the two tell different stories, trust the measurement.
 - **Rank by frequency.** Video cannot rank by cost, because it has no ball flight. Say that.
 
 ## Step 2: predictions
