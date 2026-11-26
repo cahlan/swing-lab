@@ -44,6 +44,7 @@ MAX_HANDOUT = 5       # swings handed out at once
 CHECK_EVERY = 5       # one swing in this many gets an independent second reading
 PILOT = 3             # the first swings analyzed are always checked
 TOLERANCE = 6.0       # points two readings of one measurement may differ
+LEVEL_LIMIT = {"takeaway": 12.0, "delivery": 8.0}    # how far off level a frame may be, % of height (estimates)
 
 
 def now():
@@ -253,7 +254,16 @@ def derive(rec, row):
         out["hands_out_impact_pct_height"] = move("hands", "impact", 0, height, toward)
         out["hands_higher_impact_pct_height"] = move("hands", "impact", 1, height, -1.0)
         for f in ("takeaway", "delivery"):                                           # + = clubhead inside the hands
-            out["clubhead_inside_hands_%s_pct_height" % f] = move("clubhead", f, 0, height, -toward, (f, "hands"))
+            inside = move("clubhead", f, 0, height, -toward, (f, "hands"))
+            off = move("clubhead", f, 1, height, 1.0, (f, "hands"))                  # 0 = clubhead level with the hands
+            o = f + "_other"                                                         # adjacent frame, other side of level
+            inside2 = move("clubhead", o, 0, height, -toward, (o, "hands"))
+            off2 = move("clubhead", o, 1, height, 1.0, (o, "hands"))
+            if None not in (inside, off, inside2, off2) and off * off2 < 0:          # the two frames bracket level:
+                w = abs(off) / (abs(off) + abs(off2))                                # read off the instant it was level
+                inside, off = round(inside + w * (inside2 - inside), 1), 0.0
+            out["clubhead_inside_hands_%s_pct_height" % f] = inside
+            out["%s_level_error_pct_height" % f] = None if off is None else abs(off)
     return out
 
 
@@ -314,6 +324,13 @@ def sanity(rec, row, derived):
             hb, hd, bl = (float(A0[m][0]) for m in ("hips_back", "head", "ball"))
             if not (hb < hd < bl or hb > hd > bl):
                 bad.append("address: expected hips_back, then head, then ball across the frame")
+    for f, limit in LEVEL_LIMIT.items():                       # these frames are defined by the clubhead being level
+        off = derived.get("%s_level_error_pct_height" % f)
+        if off is not None and off > limit:
+            bad.append("%s frame is not where the clubhead is level with the hands (off by %s%% of height, limit %s%%). "
+                       "Pick the frame where their heights are closest and give the adjacent frame on the other side of "
+                       "level as %s_other so the script can interpolate. If the clubhead cannot be read there, record "
+                       "the %s clubhead as null" % (f, off, limit, f, f))
     for k, v in derived.items():
         if v is not None and k != "stance_pct_height" and k != "ball_position_pct_stance" and abs(v) > 70:
             bad.append("%s = %s is outside anything a swing produces" % (k, v))
