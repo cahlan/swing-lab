@@ -46,14 +46,37 @@ python3 scripts/swing_frames.py VIDEO --out SCRATCH --impact T --crop X0,X1,Y0,Y
 Read `swing.jpg`, `impact.jpg` and `after.jpg`. Pick key times off the labels:
 
 - **Face-on:** `address` (last still frame before takeaway), `top`, `impact`, `finish`.
-- **Down the line:** `address`, `takeaway` (shaft parallel to the ground going back), `top`, `halfway` (lead arm parallel to the ground coming down), `delivery` (shaft parallel to the ground coming down), `impact`, `finish`.
+- **Down the line:** `address`, `takeaway`, `top`, `halfway` (lead arm parallel to the ground coming down), `delivery`, `impact`, `finish`. Takeaway and delivery are roughly where the shaft is parallel to the ground; Step 3 pins them exactly.
 
-## Step 3: key stills
+## Step 3: pin the takeaway and delivery frames (down the line only)
+
+These two frames decide the clubhead-versus-hands readings, and the club moves far enough between frames that being one frame off changes the answer. Do not pick them by eye. Pick them by this rule:
+
+**Takeaway is the frame going back, and delivery is the frame coming down, in which the clubhead is closest to level with the hands in the image.**
+
+1. Estimate each time: takeaway from `swing.jpg`, delivery from `impact.jpg`.
+2. Rerun with five candidates one frame apart around each estimate. One frame is 1 divided by the frame rate the script printed (0.017 s at 60, 0.033 s at 30).
+
+```bash
+python3 scripts/swing_frames.py VIDEO --out SCRATCH --impact T --crop X0,X1,Y0,Y1 \
+  --keys ta1=T,ta2=T,ta3=T,ta4=T,ta5=T,de1=T,de2=T,de3=T,de4=T,de5=T
+```
+
+3. On each candidate still, read `hands` and `clubhead`. For each set of five, choose the one with the smallest difference between the clubhead's y and the hands' y. If two tie, take the earlier.
+4. If the best candidate is the first or last of its five, the level frame may be outside the window. Shift the window that way and repeat.
+5. Use the chosen times as `takeaway` and `delivery` in the next step.
+6. **Delivery needs a second frame.** Coming down, the clubhead can travel a third of the golfer's height between two frames, so the level moment usually falls between them. Also record the adjacent candidate on the other side of level as `delivery_other`, with its `t`, `hands` and `clubhead`. If the clubhead is above the hands in `delivery`, `delivery_other` is the next frame, where it is below, and the reverse. The script reads the level moment off the two. If the clubhead can't be read in either frame, record that clubhead as `null`.
+
+Read `hands` as the middle of the grip, between the two hands, and `clubhead` as the center of the clubhead, on every frame.
+
+## Step 4: key stills
 
 ```bash
 python3 scripts/swing_frames.py VIDEO --out SCRATCH --impact T --crop X0,X1,Y0,Y1 \
   --keys address=T,top=T,impact=T,finish=T
 ```
+
+Run this step last, with every key frame for the view, so `keys.jpg` shows exactly the frames you record.
 
 Read each `key_<name>.jpg` and read off every landmark below. If you set red reference lines with `--lines` or `--hlines`, the values you pass must equal the address readings you record.
 
@@ -78,11 +101,12 @@ Each is `[x, y]` on the cropped grid, or `null`. Each key frame also has `t`, it
 
 | Frame | Landmarks |
 | --- | --- |
-| address | `hips_back` (rearmost point of the hips), `head`, `cap_top`, `ground`, `hands`, `ball`, `clubhead` |
+| address | `hips_back` (rearmost point of the hips), `head`, `cap_top`, `ground`, `hands` (middle of the grip), `ball`, `clubhead` (center of the clubhead) |
 | takeaway | `hands`, `clubhead` |
 | top | `hands` |
 | halfway | `hands` |
 | delivery | `hands`, `clubhead` |
+| delivery_other (the adjacent frame across level) | `hands`, `clubhead` |
 | impact | `hips_back`, `head`, `hands` |
 | finish | time only |
 
@@ -160,4 +184,4 @@ Return to the caller, in a few lines and nothing else:
 - `record: SCRATCH/record.json` and `evidence: SCRATCH/keys.jpg`, or
 - `skip: <reason>` when there is no usable swing (no strike, practice swing with no ball, golfer cut off, too dark, camera moving throughout).
 
-If the caller reports that the record was rejected, fix exactly what the rejection lists and return it again. If a rejection says the readings are impossible, re-read those landmarks from the stills. Only if the stills really show an unusual setup, add `"sanity_override": "<why>"`.
+If the caller reports that the record was rejected, fix exactly what the rejection lists and return it again. A rejection saying a takeaway or delivery frame is not level means Step 3 was not followed: redo it. If a rejection says the readings are impossible, re-read those landmarks from the stills. Only if the stills really show an unusual setup, add `"sanity_override": "<why>"`.

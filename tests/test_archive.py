@@ -21,6 +21,23 @@ FACE_ON = {
     "summary": "Stable head, modest hip shift, hangs back at the finish."}
 
 
+DTL = {
+    "schema": 1, "view": "dtl", "club": "driver", "quality": "good", "model": "test", "impact_s": 1.5,
+    "crop": [0, 7, 0.5, 7.5], "camera_moved": False,
+    "frames": {
+        "address": {"t": 0.3, "hips_back": [2.6, 6.3], "head": [4.6, 4.1], "cap_top": [4.6, 3.6], "ground": [3, 9.2],
+                    "hands": [5.3, 6.1], "ball": [9.4, 8.3], "clubhead": [9.3, 8.6]},
+        "takeaway": {"t": 0.6, "hands": [3.6, 6.2], "clubhead": [0.2, 6.7]},
+        "top": {"t": 1.0, "hands": [1.9, 3.8]}, "halfway": {"t": 1.3, "hands": [4.7, 5.9]},
+        "delivery": {"t": 1.4, "hands": [5.8, 6.2], "clubhead": [3.5, 6.5]},
+        "impact": {"t": 1.5, "hips_back": [2.5, 6.3], "head": [5.2, 4.5], "hands": [5.9, 6.3]},
+        "finish": {"t": 2.4}},
+    "observations": [{"code": c, "present": "unreadable", "confidence": "low", "evidence": ""} for c in (
+        "over_the_top", "stuck_inside", "early_extension", "inside_takeaway", "steep_at_halfway", "open_face_at_top",
+        "closed_face_at_top", "weight_on_heels_at_address", "aimed_right", "aimed_left", "ball_starts_right", "ball_starts_left")],
+    "summary": "Down-the-line driver swing."}
+
+
 def make_video(path):
     """3 s of test pattern with one loud click at 1.5 s and a recording timestamp."""
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x568:rate=30:duration=3",
@@ -52,8 +69,8 @@ class ArchiveTest(unittest.TestCase):
     def ledger(self):
         return {r["unit_id"]: r for r in csv.DictReader(self.read("ledger.csv").splitlines())}
 
-    def record(self, **changes):
-        rec = copy.deepcopy(FACE_ON)
+    def record(self, base=None, **changes):
+        rec = copy.deepcopy(base or FACE_ON)
         for path, value in changes.items():
             node = rec; keys = path.split("__")
             for k in keys[:-1]: node = node[k]
@@ -97,6 +114,28 @@ class ArchiveTest(unittest.TestCase):
         r = self.run_cmd("file", "A__s1", bad); self.assertIn("stance width", r.stderr)
         self.run_ok("file", "A__s1", self.record(frames__address__trail_foot_outer=[6.8, 7.3], sanity_override="filmed from far away"))
         self.assertEqual(self.ledger()["A__s1"]["status"], "needs_review")
+
+    def test_down_the_line_reports_how_level_the_pinned_frames_are(self):
+        self.run_ok("file", "A__s1", self.record(DTL))
+        d = json.loads(self.read("records", "A__s1.json"))["derived"]
+        self.assertEqual((d["takeaway_level_error_pct_height"], d["delivery_level_error_pct_height"]), (8.9, 5.4))
+        self.assertEqual((d["clubhead_inside_hands_takeaway_pct_height"], d["clubhead_inside_hands_delivery_pct_height"]), (34.2, 23.1))
+
+    def test_delivery_is_interpolated_between_two_frames_that_bracket_level(self):
+        self.run_ok("file", "A__s1", self.record(DTL, frames__delivery={"t": 1.4, "hands": [5.8, 6.1], "clubhead": [3.4, 6.4]},
+                                                 frames__delivery_other={"t": 1.383, "hands": [5.4, 6.2], "clubhead": [1.1, 4.6]}))
+        d = json.loads(self.read("records", "A__s1.json"))["derived"]
+        self.assertEqual((d["clubhead_inside_hands_delivery_pct_height"], d["delivery_level_error_pct_height"]), (27.1, 0.0))
+
+    def test_delivery_frame_off_level_needs_the_other_frame_or_a_null(self):
+        r = self.run_cmd("file", "A__s1", self.record(DTL, frames__delivery__clubhead=[3.5, 7.2]))
+        self.assertIn("delivery_other", r.stderr)
+        self.run_ok("file", "A__s1", self.record(DTL, frames__delivery__clubhead=None))
+        self.assertIsNone(json.loads(self.read("records", "A__s1.json"))["derived"]["clubhead_inside_hands_delivery_pct_height"])
+
+    def test_takeaway_frame_that_is_not_level_is_rejected(self):
+        r = self.run_cmd("file", "A__s1", self.record(DTL, frames__takeaway__clubhead=[0.2, 8.5]))
+        self.assertIn("takeaway frame is not where the clubhead is level", r.stderr)
 
     def test_out_of_order_frames_are_rejected(self):
         r = self.run_cmd("file", "A__s1", self.record(frames__top__t=2.0)); self.assertIn("out of order", r.stderr)

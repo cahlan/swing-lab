@@ -123,6 +123,7 @@ These never become automatic:
 
 - The clubface and the swing path at impact. At 60 frames per second the club moves several feet between frames.
 - Strike location on the face.
+- The club's position coming into the ball, precisely. At 60 frames per second the clubhead travels up to a third of the golfer's height between frames, so the delivery reading is interpolated from two frames and still carries error. At 30 it is worse. Down-the-line swings filmed in slow motion remove most of it.
 - What each miss costs. That needs ball flight.
 - Anything about a swing that was not filmed. Cahlan may film mostly when something feels off, so the archive can overstate faults.
 

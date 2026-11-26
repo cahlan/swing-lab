@@ -4,6 +4,8 @@ Each entry is a failure that actually happened and the part of the harness it ch
 
 | Date | What went wrong | What changed |
 | --- | --- | --- |
+| 2026-11-25 | Pilot: two readers disagreed on clubhead-versus-hands at takeaway, and on which side of the hands the clubhead was. "Shaft parallel" was picked by eye from frames a tenth of a second apart | `lab-measure` step 3: takeaway and delivery are the frames where the clubhead is closest to level with the hands, chosen from five candidates one frame apart. The script computes how far off level each chosen frame is and rejects a miss. The limits (12% and 8% of height) are estimates. Regression: re-measure and re-check the three pilot swings |
+| 2026-11-25 | Trying that rule on a real 60 fps swing showed clubhead-inside-hands at delivery reading 43%, 23% and -3% of height on three consecutive frames. The nearest frame alone leaves about 10 points of sampling error | The measurer also records `delivery_other`, the adjacent frame across level, and the script interpolates to the level moment. Slow-motion video is the real fix for down-the-line swings |
 | 2026-11-25 | Pilot: a check disagreed and nothing said whether the readers chose different frames or read the same frames differently | `check` records and prints key frames chosen more than a frame apart |
 | 2026-11-25 | Pilot: `next` gave out a swing that another agent was still measuring | `next` hands each swing out once; `resume` lists unfinished ones |
 | 2026-11-25 | Pilot: `file` and `check` printed readings, which reached the orchestrator and its report | Both are quiet by default; `check` prints names, not values |
