@@ -31,10 +31,15 @@ After that the archive path is in `.claude/archive_path.txt`.
 
 ```bash
 python3 scripts/swing_archive.py --root "ARCHIVE" scan
+python3 scripts/swing_archive.py --root "ARCHIVE" resume
 python3 scripts/swing_archive.py --root "ARCHIVE" next -n 3
 ```
 
-`next` prints one line per swing: unit id, video path, recording time, strike time, frame rate. Swings handed out earlier and never finished come back first.
+`resume` lists swings handed out in an earlier session and never finished. Do those first; they count toward the batch. `next` then hands out new swings. Both print one line per swing: unit id, video path, recording time, strike time, frame rate.
+
+`next` hands each swing out exactly once. Call it once per batch for the number you still need, and call it again only to replace a swing that was skipped. Never call `next` while you are waiting on agents you already started.
+
+Agents may run in parallel, one per swing.
 
 For each line:
 
@@ -50,6 +55,8 @@ python3 scripts/swing_archive.py --root "ARCHIVE" mark UNIT --status skipped --n
 ```bash
 python3 scripts/swing_archive.py --root "ARCHIVE" file UNIT scratch/UNIT/record.json --evidence scratch/UNIT/keys.jpg
 ```
+
+`file` prints one line and no readings. Do not pass `--show`; the readings are not for you.
 
 4. **If `file` prints `RECORD REJECTED`,** send the rejection text back to the same subagent and file again. The script marks the swing `failed` after three rejections; when it says so, move on.
 
@@ -67,7 +74,7 @@ The first three swings ever analyzed and about one in five after that are listed
 python3 scripts/swing_archive.py --root "ARCHIVE" check UNIT scratch/UNIT_check/record.json
 ```
 
-`AGREE` leaves the record in place. `DISAGREE` marks it `needs_review`, which removes it from every count until someone resolves it.
+`AGREE` leaves the record in place. `DISAGREE` marks it `needs_review`, which removes it from every count until someone resolves it. On a disagreement the script names the measurements that differ and says whether the two readers chose different key frames or read the same frames differently. Copy those lines into your report as they are.
 
 ## Finish
 
@@ -95,6 +102,16 @@ Do not read or interpret the roll-up. Do not propose a diagnosis.
 ## First run: pilot
 
 On the first run, do 3 swings, run the 3 checks, report and stop. Wait for Cahlan before continuing. If two or more of the three checks disagree, the measuring instructions are not repeatable enough; say so plainly.
+
+## Re-measuring after a harness change
+
+When Cahlan asks for swings to be measured again, for example after the measuring instructions change:
+
+```bash
+python3 scripts/swing_archive.py --root "ARCHIVE" reset UNIT --note "<why>"
+```
+
+The old record and check move to `_analysis/superseded/` and the swing is handed out again by `next`. Then run the loop and the checks as usual. Reset only the swings he names.
 
 ## When something keeps going wrong
 

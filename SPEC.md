@@ -26,7 +26,7 @@ The lab is the evidence layer. It measures swings and reports patterns. It does 
 | --- | --- | --- | --- |
 | Videos | Drive archive, one subfolder per golfer | Cahlan | Added, never edited |
 | Ledger | `_analysis/ledger.csv` | `swing_archive.py` | By script only |
-| Swing records | `_analysis/records/` | Measuring agent, filed by script | Written once; never edited |
+| Swing records | `_analysis/records/` | Measuring agent, filed by script | Written once; never edited. A re-measure moves the old record to `_analysis/superseded/` |
 | Checks | `_analysis/checks/` | Second measuring agent, compared by script | Written once |
 | Roll-up | `_analysis/rollup_<golfer>.md` | Script | Regenerated |
 | Golden set | `_analysis/golden.csv` | Cahlan | Labels added by him |
@@ -80,8 +80,8 @@ Records carry the git commit of the code that produced them. Records from differ
 
 | Status | Meaning | Set by |
 | --- | --- | --- |
-| `extracted` | Found by `scan`, waiting | `scan` |
-| `in_progress` | Handed out, not yet filed | `next` |
+| `extracted` | Found by `scan`, waiting | `scan`, `reset` |
+| `in_progress` | Handed out once, not yet filed; listed by `resume` | `next` |
 | `analyzed` | Record filed and counted | `file` |
 | `needs_review` | Record filed but disputed or implausible; not counted | `file`, `check` |
 | `skipped` | Not a usable swing | `mark` |
@@ -105,7 +105,7 @@ Records carry the git commit of the code that produced them. Records from differ
 ## Exits
 
 - A record rejected three times marks the swing `failed`. The loop moves on.
-- `next` hands out at most five swings at once.
+- `next` hands out at most five swings at once, and each swing only once.
 - A batch does the number of swings asked for, then stops and reports.
 - The first run is a pilot of three swings and three checks. It stops for Cahlan.
 - A check agreement rate below about 70% stops synthesis. No Profile is written from unrepeatable readings.

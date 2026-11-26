@@ -4,8 +4,10 @@
   swing_archive.py --root DIR scan                 find new videos and their strikes (no model needed)
   swing_archive.py --root DIR status               counts by status
   swing_archive.py --root DIR next [-n 3]          hand out the next swings, spread across the date range
+  swing_archive.py --root DIR resume               swings handed out earlier and never finished
+  swing_archive.py --root DIR reset UNIT --note "why"   set a swing aside to be measured again
   swing_archive.py --root DIR mark UNIT --status skipped --note "practice swing"
-  swing_archive.py --root DIR file UNIT record.json [--evidence keys.jpg]
+  swing_archive.py --root DIR file UNIT record.json [--evidence keys.jpg] [--show]
   swing_archive.py --root DIR checklist            analyzed swings that still need an independent check
   swing_archive.py --root DIR check UNIT second.json   compare an independent second reading
   swing_archive.py --root DIR rollup [--golfer NAME] [--pivot YYYY-MM-DD]
@@ -152,17 +154,44 @@ def spread_order(rows):
 
 def cmd_next(A, a):
     order = spread_order(A.rows)                               # fixed order, whatever has been done so far
-    open_units = [r for r in order if r["status"] == "in_progress"]          # unfinished hand-outs come first
-    fresh = [r for r in order if r["status"] == "extracted"]
-    todo = (open_units + fresh)[:min(a.n, MAX_HANDOUT)]
-    for r in todo:
-        if r["status"] == "extracted":
-            r.update(status="in_progress", updated_utc=now())
-        print("%s | %s | recorded %s | impact %ss | %s fps" % (
-            r["unit_id"], os.path.join(A.root, r["file"]), r["recorded_utc"] or "?", r["impact_s"] or "?", r["fps"]))
+    todo = [r for r in order if r["status"] == "extracted"][:min(a.n, MAX_HANDOUT)]
+    for r in todo:                                             # a swing is handed out once; see `resume`
+        r.update(status="in_progress", updated_utc=now())
+        print(handout_line(A, r))
     A.save()
     if not todo:
-        print("nothing left to analyze")
+        waiting = sum(r["status"] == "in_progress" for r in A.rows)
+        print("nothing new to hand out" + (" (%d still in progress; see `resume`)" % waiting if waiting else ""))
+
+
+def handout_line(A, r):
+    return "%s | %s | recorded %s | impact %ss | %s fps" % (
+        r["unit_id"], os.path.join(A.root, r["file"]), r["recorded_utc"] or "?", r["impact_s"] or "?", r["fps"])
+
+
+def cmd_resume(A, a):
+    """Swings handed out in an earlier session that were never filed, skipped or failed."""
+    todo = [r for r in spread_order(A.rows) if r["status"] == "in_progress"]
+    for r in todo:
+        print(handout_line(A, r))
+    if not todo:
+        print("nothing in progress")
+
+
+def cmd_reset(A, a):
+    """Set a swing aside to be measured again. The old record and check are kept, never edited or deleted."""
+    r = A.row(a.unit)
+    if not a.note:
+        sys.exit("reset needs --note saying why")
+    stamp = now().replace(" ", "T").replace(":", "")
+    kept = os.path.join(A.dir, "superseded"); os.makedirs(kept, exist_ok=True)
+    for sub in ("records", "checks"):
+        src = os.path.join(A.dir, sub, a.unit + ".json")
+        if os.path.exists(src):
+            shutil.move(src, os.path.join(kept, "%s_%s_%s.json" % (a.unit, sub, stamp)))
+    r.update(status="extracted", attempts="0", checked="", note=("reset: " + a.note)[:200], updated_utc=now())
+    A.save()
+    print("reset %s: it will be handed out again; the old record is in _analysis/superseded/" % a.unit)
 
 
 def cmd_mark(A, a):
@@ -327,9 +356,10 @@ def cmd_file(A, a):
     row.update(status=status, view=rec["view"], club=rec["club"], harness=rec["harness"], updated_utc=now(),
                note=("sanity override: " + rec["sanity_override"])[:200] if doubts else row["note"])
     A.save()                                                   # ... ledger last
-    print("filed %s as %s" % (out, status))
-    for k, v in derived.items():
-        print("  %-46s %s" % (k, "unreadable" if v is None else v))
+    print("filed %s as %s" % (a.unit, status))                 # quiet: the orchestrator stays blind to readings
+    if a.show:
+        for k, v in derived.items():
+            print("  %-46s %s" % (k, "unreadable" if v is None else v))
 
 
 def due_for_check(A):
@@ -363,8 +393,15 @@ def cmd_check(A, a):
             flips.append(o["code"])
     if first["view"] != second["view"]:
         flips.append("view")
+    frame = 1.0 / float(row["fps"] or 30)
+    times = {}                                                 # key frames the two readers put more than a frame apart
+    for f, marks in (first.get("frames") or {}).items():
+        t1, t2 = (marks or {}).get("t"), ((second.get("frames") or {}).get(f) or {}).get("t")
+        if None not in (t1, t2) and abs(float(t1) - float(t2)) > 1.5 * frame:
+            times[f] = [t1, t2, round(abs(float(t1) - float(t2)) / frame)]
     agree = not diffs and len(flips) < 2
     json.dump({"unit_id": a.unit, "checked_utc": now(), "agree": agree, "measurement_diffs": diffs, "flipped": flips,
+               "frame_time_diffs": times,
                "first_model": first.get("model"), "second_model": second.get("model"), "second": second, "second_derived": derived},
               open(os.path.join(A.dir, "checks", a.unit + ".json"), "w"), indent=1)
     row.update(checked="agree" if agree else "disagree", updated_utc=now())
@@ -372,10 +409,14 @@ def cmd_check(A, a):
         row.update(status="needs_review", note=("independent check disagreed: %s" % ", ".join(list(diffs) + flips))[:200])
     A.save()
     print("%s: %s" % (a.unit, "AGREE" if agree else "DISAGREE -> needs_review"))
-    for k, (w, v) in diffs.items():
-        print("  %-46s first %s, second %s" % (k, w, v))
+    if diffs:                                                  # names only; the readings stay in the check file
+        print("  measurements that differ: %s" % ", ".join(diffs))
     if flips:
-        print("  flipped: %s" % ", ".join(flips))
+        print("  answers that flipped: %s" % ", ".join(flips))
+    for f, (t1, t2, n) in times.items():
+        print("  key frame '%s' chosen %d frames apart (%ss vs %ss)" % (f, n, t1, t2))
+    if diffs and not times:
+        print("  the readers chose the same frames, so they read the landmarks differently")
 
 
 # ---------------------------------------------------------------- roll-up, golden set, predictions
@@ -500,17 +541,20 @@ def cmd_score(A, a):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--root", required=True)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("scan", "status", "checklist", "golden"):
+    for name in ("scan", "status", "checklist", "golden", "resume"):
         sub.add_parser(name)
     p = sub.add_parser("next"); p.add_argument("-n", type=int, default=3)
     p = sub.add_parser("mark"); p.add_argument("unit")
     for k in ("status", "view", "club", "note"): p.add_argument("--" + k, default="")
     p = sub.add_parser("file"); p.add_argument("unit"); p.add_argument("record"); p.add_argument("--evidence", default="")
+    p.add_argument("--show", action="store_true", help="also print the computed measurements")
+    p = sub.add_parser("reset"); p.add_argument("unit"); p.add_argument("--note", default="")
     p = sub.add_parser("check"); p.add_argument("unit"); p.add_argument("record")
     p = sub.add_parser("rollup"); p.add_argument("--pivot", default=""); p.add_argument("--golfer", default="")
     p = sub.add_parser("score"); p.add_argument("predictions"); p.add_argument("--golfer", default="")
     a = ap.parse_args(); A = Archive(a.root)
-    {"scan": cmd_scan, "status": cmd_status, "next": cmd_next, "mark": cmd_mark, "file": cmd_file,
+    {"scan": cmd_scan, "status": cmd_status, "next": cmd_next, "resume": cmd_resume, "reset": cmd_reset,
+     "mark": cmd_mark, "file": cmd_file,
      "checklist": cmd_checklist, "check": cmd_check, "rollup": cmd_rollup, "golden": cmd_golden, "score": cmd_score}[a.cmd](A, a)
 
 
